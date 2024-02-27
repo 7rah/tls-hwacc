@@ -1,0 +1,21 @@
+[package]
+name = "forward-tls"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { version = "1.0", features = ["full"] }
+webpki-roots = "0"
+rustls = { version = "0.22"}
+tokio-rustls = "0.25"
+pki-types = { package = "rustls-pki-types", version = "1" }
+sha2 = "*"
+chacha20poly1305 = "*"
+hmac = "*"
+anyhow = "1"
+
+# hardware acceleration
+nix = {version = "0.28",features = ["fs","ioctl"]}
+crypto-bindings = { git = "https://github.com/cloudkernels/crypto-bindings" }
