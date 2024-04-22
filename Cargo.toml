@@ -1,5 +1,5 @@
 [package]
-name = "forward-tls"
+name = "tls-hwacc"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,15 +7,28 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1.0", features = ["full"] }
-webpki-roots = "0"
+webpki-roots = "0.26"
 rustls = { version = "0.22"}
 tokio-rustls = "0.25"
 pki-types = { package = "rustls-pki-types", version = "1" }
 sha2 = "*"
-chacha20poly1305 = "*"
-hmac = "*"
+hmac = "0.12"
 anyhow = "1"
+crypto2 = "0.1.2"
+ring = "0.17.8"
+constant_time_eq = "0.3.0"
+ghash = "0.5.1"
+
+aes-gcm = "0.10.3"
+rustls-rustcrypto = { git = "https://github.com/RustCrypto/rustls-rustcrypto", version = "0.1" }
 
 # hardware acceleration
 nix = {version = "0.28",features = ["fs","ioctl"]}
 crypto-bindings = { git = "https://github.com/cloudkernels/crypto-bindings" }
+
+[profile.release]
+lto = "fat"
+opt-level = 3
+codegen-units = 1
+incremental = false
+panic = "abort"

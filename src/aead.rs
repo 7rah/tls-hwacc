@@ -1,27 +1,28 @@
 use rustls::crypto::cipher::{self, AeadKey, Iv, UnsupportedOperationError};
 use rustls::{ConnectionTrafficSecrets, ContentType, ProtocolVersion};
 
-use crate::hwacc;
+use crate::gcm;
+use crate::gcm::Aes256Gcm;
 
-pub struct Aes128Gcm;
+pub struct Tls13Aes256Gcm;
 
-impl cipher::Tls13AeadAlgorithm for Aes128Gcm {
+impl cipher::Tls13AeadAlgorithm for Tls13Aes256Gcm {
     fn encrypter(&self, key: cipher::AeadKey, iv: cipher::Iv) -> Box<dyn cipher::MessageEncrypter> {
-        Box::new(Tls13Cipher(
-            hwacc::Session::new(key.as_ref(), hwacc::Cipher::AesGcm).unwrap(),
+        Box::new(Tls13CipherAes256Gcm(
+            Aes256Gcm::new(key.as_ref()).unwrap(),
             iv,
         ))
     }
 
     fn decrypter(&self, key: cipher::AeadKey, iv: cipher::Iv) -> Box<dyn cipher::MessageDecrypter> {
-        Box::new(Tls13Cipher(
-            hwacc::Session::new(key.as_ref(), hwacc::Cipher::AesGcm).unwrap(),
+        Box::new(Tls13CipherAes256Gcm(
+            Aes256Gcm::new(key.as_ref()).unwrap(),
             iv,
         ))
     }
 
     fn key_len(&self) -> usize {
-        16 // aes-128-gcm key length
+        32 // aes-256-gcm key length
     }
 
     fn extract_keys(
@@ -29,13 +30,13 @@ impl cipher::Tls13AeadAlgorithm for Aes128Gcm {
         key: AeadKey,
         iv: Iv,
     ) -> Result<ConnectionTrafficSecrets, UnsupportedOperationError> {
-        Ok(ConnectionTrafficSecrets::Aes128Gcm { key, iv })
+        Ok(ConnectionTrafficSecrets::Aes256Gcm { key, iv })
     }
 }
 
-struct Tls13Cipher(hwacc::Session, cipher::Iv);
+struct Tls13CipherAes256Gcm(gcm::Aes256Gcm, cipher::Iv);
 
-impl cipher::MessageEncrypter for Tls13Cipher {
+impl cipher::MessageEncrypter for Tls13CipherAes256Gcm {
     fn encrypt(
         &mut self,
         m: cipher::BorrowedPlainMessage,
@@ -51,47 +52,42 @@ impl cipher::MessageEncrypter for Tls13Cipher {
         let nonce = cipher::Nonce::new(&self.1, seq).0;
         let aad = cipher::make_tls13_aad(total_len);
 
-        let ret = self
+        let tag = self
             .0
             .encrypt_in_place(&nonce, &aad, &mut payload)
-            .map_err(|_| rustls::Error::EncryptError)
-            .map(|_| {
-                cipher::OpaqueMessage::new(
-                    ContentType::ApplicationData,
-                    ProtocolVersion::TLSv1_2,
-                    payload,
-                )
-            });
+            .map_err(|_| rustls::Error::EncryptError)?;
+        payload.extend_from_slice(&tag);
 
-        ret
+        Ok(cipher::OpaqueMessage::new(
+            ContentType::ApplicationData,
+            ProtocolVersion::TLSv1_2,
+            payload,
+        ))
     }
 
     fn encrypted_payload_len(&self, payload_len: usize) -> usize {
-        payload_len + 1 + CHACHAPOLY1305_OVERHEAD
+        payload_len + 1 + AES256GCM_OVERHEAD
     }
 }
 
-impl cipher::MessageDecrypter for Tls13Cipher {
+impl cipher::MessageDecrypter for Tls13CipherAes256Gcm {
     fn decrypt(
         &mut self,
         mut m: cipher::OpaqueMessage,
         seq: u64,
     ) -> Result<cipher::PlainMessage, rustls::Error> {
-        //println!("seq start {seq}");
         let payload = m.payload_mut();
-
-        //println!("encrypt {} {}", payload.len(), seq);
-
         let nonce = cipher::Nonce::new(&self.1, seq).0;
         let aad = cipher::make_tls13_aad(payload.len());
 
+        let tag = payload.split_off(payload.len() - 16);
+
         self.0
-            .decrypt_in_place(&nonce, &aad, payload)
+            .decrypt_in_place(&nonce, &aad, payload, &tag.try_into().unwrap())
             .map_err(|_| rustls::Error::DecryptError)?;
 
-        //println!("seq finish {seq}");
         m.into_tls13_unpadded_message()
     }
 }
 
-const CHACHAPOLY1305_OVERHEAD: usize = 16;
+const AES256GCM_OVERHEAD: usize = 16;
